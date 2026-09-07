@@ -40,6 +40,42 @@ export interface Config {
    * loopback-bound server through DNS rebinding.
    */
   allowedHosts: string[];
+  /** OAuth is optional: stdio and trusted-network http can run without it. */
+  auth?: AuthConfig;
+}
+
+export interface AuthConfig {
+  /** The Discord application's OAuth2 credentials. Same app as the bot. */
+  clientId: string;
+  clientSecret: string;
+  /** Public origin this server is reached at. Becomes the OAuth issuer. */
+  publicUrl: string;
+  /**
+   * Role id -> tier. Empty is fine and is the current state of the guild: the
+   * owner still gets admin and any member still gets read, so authentication
+   * works before anyone creates a single role.
+   */
+  roleTiers: Map<string, Mode>;
+  /** Guild owner is always admin; no role can express "owner". */
+  ownerTier: Mode;
+  /** Tier for an authenticated member matching no role rule. */
+  memberTier: Mode;
+}
+
+/** Parse "roleid:tier,roleid:tier" into a map, rejecting unknown tiers loudly. */
+function roleTierMap(raw: string | undefined): Map<string, Mode> {
+  const out = new Map<string, Mode>();
+  for (const entry of list(raw)) {
+    const [id, tier] = entry.split(":").map((x) => x.trim());
+    if (!id || !tier) {
+      throw new Error(`DISCORD_ROLE_TIERS entry "${entry}" is not in roleId:tier form.`);
+    }
+    if (!(tier in MODE_RANK)) {
+      throw new Error(`DISCORD_ROLE_TIERS entry "${entry}" has tier "${tier}"; expected read|write|admin.`);
+    }
+    out.set(id, tier as Mode);
+  }
+  return out;
 }
 
 function list(raw: string | undefined): string[] {
@@ -96,6 +132,36 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     throw new Error("DISCORD_HTTP_PORT must be a port number between 1 and 65535.");
   }
 
+  const clientId = env.DISCORD_CLIENT_ID?.trim();
+  const clientSecret = env.DISCORD_CLIENT_SECRET?.trim();
+  const publicUrl = env.DISCORD_PUBLIC_URL?.trim();
+  let auth: AuthConfig | undefined;
+
+  if (clientId || clientSecret || publicUrl) {
+    if (!clientId || !clientSecret || !publicUrl) {
+      throw new Error(
+        "Discord OAuth needs DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET and DISCORD_PUBLIC_URL " +
+          "together. Set all three to enable authentication, or none to run unauthenticated.",
+      );
+    }
+    const memberTier = (env.DISCORD_MEMBER_TIER ?? "read").toLowerCase();
+    if (!(memberTier in MODE_RANK)) {
+      throw new Error(`DISCORD_MEMBER_TIER must be read|write|admin, got "${memberTier}".`);
+    }
+    const ownerTier = (env.DISCORD_OWNER_TIER ?? "admin").toLowerCase();
+    if (!(ownerTier in MODE_RANK)) {
+      throw new Error(`DISCORD_OWNER_TIER must be read|write|admin, got "${ownerTier}".`);
+    }
+    auth = {
+      clientId,
+      clientSecret,
+      publicUrl: publicUrl.replace(/\/+$/, ""),
+      roleTiers: roleTierMap(env.DISCORD_ROLE_TIERS),
+      ownerTier: ownerTier as Mode,
+      memberTier: memberTier as Mode,
+    };
+  }
+
   return {
     token,
     guildIds,
@@ -109,6 +175,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     httpHost: env.DISCORD_HTTP_HOST?.trim() || "127.0.0.1",
     httpPort,
     allowedHosts: list(env.DISCORD_ALLOWED_HOSTS),
+    auth,
   };
 }
 
