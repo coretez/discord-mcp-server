@@ -6,7 +6,7 @@
  * context and buries the signal.
  */
 
-import { ChannelType } from "discord-api-types/v10";
+import { ChannelType, MessageType } from "discord-api-types/v10";
 import type {
   APIChannel,
   APIGuild,
@@ -93,6 +93,30 @@ export function formatChannels(channels: APIChannel[]): string {
   return out.join("\n");
 }
 
+/**
+ * System messages (joins, pins, boosts) carry no `content` by design. Naming
+ * them keeps an empty body from reading like the redaction you get when the
+ * Message Content intent is switched off.
+ */
+const SYSTEM_MESSAGE_LABELS: Partial<Record<MessageType, string>> = {
+  [MessageType.RecipientAdd]: "added someone to the channel",
+  [MessageType.RecipientRemove]: "removed someone from the channel",
+  [MessageType.Call]: "started a call",
+  [MessageType.ChannelNameChange]: "changed the channel name",
+  [MessageType.ChannelIconChange]: "changed the channel icon",
+  [MessageType.ChannelPinnedMessage]: "pinned a message",
+  [MessageType.UserJoin]: "joined the server",
+  [MessageType.GuildBoost]: "boosted the server",
+  [MessageType.GuildBoostTier1]: "boosted the server to tier 1",
+  [MessageType.GuildBoostTier2]: "boosted the server to tier 2",
+  [MessageType.GuildBoostTier3]: "boosted the server to tier 3",
+  [MessageType.ChannelFollowAdd]: "followed a channel into this one",
+  [MessageType.ThreadCreated]: "created a thread",
+  [MessageType.GuildInviteReminder]: "invite reminder",
+  [MessageType.AutoModerationAction]: "automod action",
+  [MessageType.ThreadStarterMessage]: "thread starter",
+};
+
 export function formatMessage(m: APIMessage, opts: { channelName?: string } = {}): string {
   const author = m.author?.global_name ?? m.author?.username ?? "unknown";
   const bot = m.author?.bot ? " [bot]" : "";
@@ -101,8 +125,13 @@ export function formatMessage(m: APIMessage, opts: { channelName?: string } = {}
   const head = `[${when}]${where} ${author}${bot} (${m.id})`;
 
   const parts: string[] = [];
+  const systemLabel = SYSTEM_MESSAGE_LABELS[m.type];
+  if (systemLabel) parts.push(`<system: ${systemLabel}>`);
   if (m.content) parts.push(m.content);
   for (const a of m.attachments ?? []) parts.push(`<attachment: ${a.filename} ${a.url}>`);
+  // A sticker-only message has no content and no attachment; without this it
+  // formats as empty and reads as a message we failed to fetch.
+  for (const s of m.sticker_items ?? []) parts.push(`<sticker: ${s.name}>`);
   for (const e of m.embeds ?? []) {
     const bits = [e.title, e.description].filter(Boolean).join(" — ");
     if (bits) parts.push(`<embed: ${bits.slice(0, 300)}>`);
@@ -112,7 +141,11 @@ export function formatMessage(m: APIMessage, opts: { channelName?: string } = {}
       `<reactions: ${m.reactions.map((r) => `${r.emoji.name}×${r.count}`).join(" ")}>`,
     );
   }
-  const body = parts.length ? parts.join("\n") : "(no text content)";
+  const body = parts.length
+    ? parts.join("\n")
+    : m.type === MessageType.Default || m.type === MessageType.Reply
+      ? "(no text content)"
+      : `(no text content — message type ${m.type})`;
   return `${head}\n${body}`;
 }
 
