@@ -11,6 +11,9 @@ import { dirname, join } from "node:path";
 
 export type Mode = "read" | "write" | "admin";
 
+/** stdio: the client spawns us. http: we listen, and many clients connect. */
+export type TransportKind = "stdio" | "http";
+
 const MODE_RANK: Record<Mode, number> = { read: 0, write: 1, admin: 2 };
 
 export interface Config {
@@ -27,6 +30,16 @@ export interface Config {
   bulkDeleteMax: number;
   /** Where report_client_issue appends its receipts. */
   issueLogPath: string;
+  transport: TransportKind;
+  /** Bind address for http. Defaults to loopback: nginx terminates TLS in front. */
+  httpHost: string;
+  httpPort: number;
+  /**
+   * Host headers this server will answer to over http. The SDK rejects anything
+   * else, which is what stops a browser on someone's machine from driving a
+   * loopback-bound server through DNS rebinding.
+   */
+  allowedHosts: string[];
 }
 
 function list(raw: string | undefined): string[] {
@@ -73,6 +86,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     throw new Error("DISCORD_BULK_DELETE_MAX must be an integer between 1 and 100.");
   }
 
+  const rawTransport = (env.DISCORD_TRANSPORT ?? "stdio").toLowerCase();
+  if (rawTransport !== "stdio" && rawTransport !== "http") {
+    throw new Error(`DISCORD_TRANSPORT must be stdio or http, got "${rawTransport}".`);
+  }
+
+  const httpPort = Number.parseInt(env.DISCORD_HTTP_PORT ?? "8500", 10);
+  if (!Number.isFinite(httpPort) || httpPort < 1 || httpPort > 65535) {
+    throw new Error("DISCORD_HTTP_PORT must be a port number between 1 and 65535.");
+  }
+
   return {
     token,
     guildIds,
@@ -82,6 +105,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     channelAllowlist: list(env.DISCORD_CHANNEL_ALLOWLIST),
     bulkDeleteMax,
     issueLogPath: env.DISCORD_ISSUE_LOG?.trim() || defaultIssueLog(),
+    transport: rawTransport as TransportKind,
+    httpHost: env.DISCORD_HTTP_HOST?.trim() || "127.0.0.1",
+    httpPort,
+    allowedHosts: list(env.DISCORD_ALLOWED_HOSTS),
   };
 }
 
