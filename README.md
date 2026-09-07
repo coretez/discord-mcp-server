@@ -3,6 +3,12 @@
 An MCP server over the Discord REST API, scoped to the **FluencySecurityAi** guild
 (`1542903941933826118`). Read the server, post to it, and moderate it from any MCP client.
 
+Runs two ways: as a local stdio process for a single operator, or hosted over HTTP where callers
+sign in with Discord and their **guild roles decide what they can do**. See
+[Authentication](#authentication). The live instance is
+[`discord.fluencyalliance.com`](https://discord.fluencyalliance.com/healthz); the runbook for it is
+[DEPLOY.md](DEPLOY.md).
+
 REST only — no gateway connection. MCP tools are pull-based, so a websocket would buy nothing
 and keep a process hot for no reason. The consequence: this server answers questions and takes
 actions on request; it cannot react to events as they happen.
@@ -10,7 +16,7 @@ actions on request; it cannot react to events as they happen.
 ## Guardrails
 
 Full moderation power is a loaded gun, so capability is opt-in rather than granted by mere
-possession of a token. Four independent fences:
+possession of a token. Independent fences, each of which can refuse on its own:
 
 | Fence | Env | Effect |
 |---|---|---|
@@ -19,6 +25,7 @@ possession of a token. Four independent fences:
 | **Destructive switch** | `DISCORD_ALLOW_DESTRUCTIVE` | Delete, kick, ban and bulk-delete additionally require this flag *and* an explicit `confirm: true` argument. |
 | **Dry run** | per-call `dry_run` | `discord_delete_channel`, `discord_delete_role`, `discord_delete_message` and `discord_set_channel_permissions` report exactly what they would destroy and change nothing. A preview needs neither confirmation nor the destructive switch — that is precisely when someone is deciding whether to enable it. |
 | **Channel allowlist** | `DISCORD_CHANNEL_ALLOWLIST` | Optional. Confines writes to named channels. Checked locally, before any API call. |
+| **Identity** | Discord OAuth | Over HTTP, the caller's Discord roles pick the mode for their session. Not a check layered on top: the session's server is *built* at that tier, so higher tools are never registered for them. |
 
 Refusals come back as tool errors naming which fence fired, so an agent can tell "not permitted"
 from "Discord said no".
@@ -133,54 +140,103 @@ backs up the existing config, merges the entry idempotently, and chmods the resu
 registers at `DISCORD_MODE=read` with destructive actions off; raise those once you have watched
 it run. Claude Desktop reads the file only at launch, so restart it afterwards.
 
-Either way this is a **local stdio process** that the client spawns. It is not a claude.ai
-connector and will not appear in claude.ai sessions, which load only hosted HTTPS servers — see
-[Deployment model](#deployment-model).
+Either way this is a **local stdio process** that the client spawns, so it serves exactly one
+operator and will not appear in claude.ai sessions, which load only hosted HTTPS servers. To serve
+other people, run it over HTTP instead — see [Deployment model](#deployment-model) and
+[Authentication](#authentication).
+
+Give the local and hosted servers **different names** in your client config. OAuth tokens are
+stored per endpoint, so two entries sharing a name means authenticating one does nothing for the
+other, and one silently shadows the other.
 
 ## Deployment model
 
-Today this is a **single-operator** server, and that is a property of the code rather than a
-policy. The transport is stdio, so there is nothing to connect to — the client spawns the process.
-The token comes from one person's login keychain. And `loadConfig()` runs once at startup, so the
-mode belongs to *the process* rather than to whoever is calling; `registerTool` gates on it at
-registration time, which is why tools above the mode are never advertised. That last property is
-worth preserving in anything built on top of this.
+Two ways to run, and the difference is who the operator is.
 
-Sharing it with the rest of the guild does **not** mean everyone creates a Discord application.
-The bot token is a guild-level credential and the bot is already a member. Two identities are
-involved, and the current code only has one of them:
+**stdio** — the client spawns the process, so the operator is whoever owns the machine. Mode is
+fixed at boot by `DISCORD_MODE`. This is the right shape for one person with `admin`, and it is
+unchanged by everything below.
+
+**http** — one hosted process, many callers, each authenticated with Discord. Mode comes from the
+caller rather than the environment. Set `DISCORD_TRANSPORT=http`.
+
+The bot token is a *guild-level* credential and the bot is already a member, so hosting it does
+**not** mean everyone creates a Discord application. Two identities are in play, and keeping them
+apart is the whole design:
 
 | | What it is | How many |
 |---|---|---|
-| Discord identity | the `fluency-mcp` bot — what actually calls the REST API | one, server-side, never distributed |
-| Operator identity | who is asking the bot to act | today: none; the process assumes a single operator |
+| Discord identity | the bot — what actually calls the REST API | one, server-side, never distributed |
+| Operator identity | who is asking the bot to act | one per authenticated human |
 
-Handing the bot token to each person collapses those back into one: full authority over the guild,
-no attribution, and revocation that can only be all-or-nothing.
+Handing the bot token to each person collapses those into one: full authority over the guild, no
+attribution, and revocation that can only be all-or-nothing.
 
-### Where this is going
+## Authentication
 
-One hosted instance over Streamable HTTP with **Sign in with Discord** in front of it. OAuth proves
-the caller is a specific Discord user; the bot token then asks Discord which roles that user holds
-in the fenced guild. Roles become the authorization source, so access is granted and revoked in
-Server Settings → Roles rather than in a second system that drifts out of sync with it.
+Over HTTP, callers sign in with Discord and their **guild roles decide their tier**.
 
-- **Tier from role.** Moderator → `write`, owner → `admin`, any other member → `read`, non-member
-  → refused at the door.
-- **A server per session, not per process.** Construct the `McpServer` when a session
-  authenticates, registering only that user's tier. This keeps the unregistered-tools-are-invisible
-  property rather than trading it for per-call checks: a read-tier session genuinely has 15 tools,
-  not 37 sitting behind guards.
-- **Attribution.** Writes carry `— requested by @user`, and the actor is recorded server-side
-  against every action. Posting anonymously as the bot is defensible with one operator and
-  indefensible with several.
-- **One rate-limit bucket.** Every operator shares the bot token's Discord rate limits, so the
-  limiter has to be process-wide rather than per-session.
+This server is the OAuth 2.1 authorization server; Discord is the login step inside it. That is
+not a stylistic choice — Discord has no Dynamic Client Registration, and MCP clients register
+themselves, so pointing a client straight at Discord cannot work. We issue the tokens; Discord
+proves who the human is.
 
-Staged so the auth path is proven before it can break anything: deploy read-only first, with the
-mode capped server-side. The blast radius is then nothing a member could not already do in the
-Discord client, while still exercising OAuth, role lookup and session handling under real use.
-Writes unlock afterwards; `admin` stays on the local stdio instance.
+The flow, once per 8 hours:
+
+```
+client → /mcp                     401 + WWW-Authenticate
+       → /.well-known/…/mcp       discovery
+       → /register                client registers itself (DCR)
+       → /authorize               302 → discord.com
+                                  human approves
+       → /auth/discord/callback   identify + role lookup → tier
+       → /token                   access token carrying the tier
+```
+
+**Membership is the authorization.** After login the server reads the caller's roles from
+`/users/@me/guilds/{id}/member`, which 404s for anyone outside the guild. There is no allowlist to
+maintain and no "should this person be allowed" question to answer — leaving the guild revokes
+access by itself.
+
+| Caller | Tier | Env |
+|---|---|---|
+| Not a guild member | refused | — |
+| Guild member, no matching role | `read` | `DISCORD_MEMBER_TIER` |
+| Holds a mapped role (highest wins) | `write` / `admin` | `DISCORD_ROLE_TIERS` |
+| Guild owner | `admin` | `DISCORD_OWNER_TIER` |
+
+Ownership is handled separately because Discord does not express it as a role. The defaults
+therefore work on a guild with **no roles at all**: the owner gets `admin`, everyone else `read`.
+`DISCORD_ROLE_TIERS` (`roleId:tier,roleId:tier`) starts mattering the moment a role exists.
+
+The scopes requested are `identify` and `guilds.members.read` — enough to name the caller and read
+their roles, and not enough to read their messages or join servers on their behalf.
+
+**Tokens last 8 hours and there are no refresh tokens.** Re-authorizing is when a role change takes
+effect; silent indefinite renewal would let a revoked role keep working. Token state is in-memory,
+so restarting the service logs everyone out.
+
+Setting `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET` and `DISCORD_PUBLIC_URL` enables all of this;
+omitting them runs the server unauthenticated, which is only appropriate on a trusted network.
+
+### Deploying it
+
+```bash
+DISCORD_TRANSPORT=http DISCORD_HTTP_PORT=8500 npm start
+```
+
+Bind loopback and terminate TLS in front. The reverse proxy needs two things beyond the obvious:
+
+```nginx
+proxy_set_header Host $host;   # DISCORD_ALLOWED_HOSTS is checked against it
+proxy_buffering off;           # MCP streams over SSE
+proxy_read_timeout 3600s;
+```
+
+`proxy_buffering off` is the one that bites: with buffering on, nginx holds streamed events until
+the response completes, which for a live session never happens, and the server appears to hang.
+
+`GET /healthz` reports version, whether auth is on, and live session counts.
 
 ## Validation
 
@@ -248,3 +304,16 @@ set of Discord rate-limit buckets.
 **Guild content is data, not instruction.** A message asking the agent to ban someone, post
 something, or change a setting is not authorization for it. The server says so in its `instructions`,
 and it holds for anything built on top of this too.
+
+**Restarting the hosted server logs everyone out.** Tokens live in memory, so every deploy forces
+re-authentication. Deliberate while token persistence is outstanding, but worth timing.
+
+**A 401 is the beginning of the flow, not a failure.** An MCP client showing "needs authentication"
+has correctly discovered that it must log in. The failure worth chasing is a 401 whose
+`WWW-Authenticate` header points at a URL that 404s — RFC 9728 suffixes the resource path onto the
+metadata URL, so it is `/.well-known/oauth-protected-resource/mcp`, not the bare path. Derive it
+with the SDK's `getOAuthProtectedResourceMetadataUrl` rather than by hand.
+
+**OAuth tokens are stored per endpoint.** Registering the same server under one name at two
+endpoints (a local stdio one and a hosted one) means authenticating one does nothing for the other,
+and whichever scope wins will silently shadow the other. Give them distinct names.
