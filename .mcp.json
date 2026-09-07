@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "fluency-discord": {
+      "command": "./scripts/with-token.sh",
+      "args": [],
+      "env": {
+        "DISCORD_GUILD_ID": "1542903941933826118",
+        "DISCORD_MODE": "read",
+        "DISCORD_ALLOW_DESTRUCTIVE": "false"
+      }
+    }
+  }
+}
