@@ -102,22 +102,85 @@ It reports the bot's identity, its effective permissions against what the mode n
 position, the channel list, and whether the members intent is on. Exits non-zero if the mode
 promises more than the bot can deliver.
 
-**5. Register with Claude Desktop.** This server is a local stdio process, registered beside
-`fluency-mssp` and `webmaster-agent` in `claude_desktop_config.json`. It is not a claude.ai
-connector, so it will not appear in claude.ai sessions — those only load hosted HTTPS servers.
+**5. Store the token in the keychain**, not in a file:
+
+```bash
+./scripts/store-token.sh
+```
+
+It prompts without echoing and validates before storing. A bot token is three dot-separated
+base64url segments whose first segment decodes to the application id, so the script can tell you
+when you have pasted the Public Key or the Application ID instead — the two fields adjacent to it
+on the portal page, and the two that get grabbed by mistake.
+
+`scripts/with-token.sh` is the matching launcher: it reads the token back at spawn time and execs
+the server, so the secret is never in `.mcp.json`, never in the repo, and never in a process
+argument list where anyone running `ps` could read it.
+
+**6. Register with a client.**
+
+*Claude Code* reads `.mcp.json` from the project root. It is committed, holds no secret, and
+points at `with-token.sh` — opening the project is the whole setup.
+
+*Claude Desktop* keeps one global config instead:
 
 ```bash
 DISCORD_BOT_TOKEN='<your bot token>' npm run register
 ```
 
-The token is read from the environment rather than argv, because arguments are visible to anyone
-who can run `ps`. The script backs up the existing config, merges the entry idempotently, and
-chmods the result to 600. It registers at `DISCORD_MODE=read` with destructive actions off; raise
-those in the config once you have watched it run. Claude Desktop reads the file only at launch, so
-restart it afterwards.
+The token is read from the environment rather than argv, for the `ps` reason above. The script
+backs up the existing config, merges the entry idempotently, and chmods the result to 600. It
+registers at `DISCORD_MODE=read` with destructive actions off; raise those once you have watched
+it run. Claude Desktop reads the file only at launch, so restart it afterwards.
 
-Override the defaults through the environment of that same command — `DISCORD_MODE=write`,
-`DISCORD_GUILD_ID=…` — or edit the entry it writes.
+Either way this is a **local stdio process** that the client spawns. It is not a claude.ai
+connector and will not appear in claude.ai sessions, which load only hosted HTTPS servers — see
+[Deployment model](#deployment-model).
+
+## Deployment model
+
+Today this is a **single-operator** server, and that is a property of the code rather than a
+policy. The transport is stdio, so there is nothing to connect to — the client spawns the process.
+The token comes from one person's login keychain. And `loadConfig()` runs once at startup, so the
+mode belongs to *the process* rather than to whoever is calling; `registerTool` gates on it at
+registration time, which is why tools above the mode are never advertised. That last property is
+worth preserving in anything built on top of this.
+
+Sharing it with the rest of the guild does **not** mean everyone creates a Discord application.
+The bot token is a guild-level credential and the bot is already a member. Two identities are
+involved, and the current code only has one of them:
+
+| | What it is | How many |
+|---|---|---|
+| Discord identity | the `fluency-mcp` bot — what actually calls the REST API | one, server-side, never distributed |
+| Operator identity | who is asking the bot to act | today: none; the process assumes a single operator |
+
+Handing the bot token to each person collapses those back into one: full authority over the guild,
+no attribution, and revocation that can only be all-or-nothing.
+
+### Where this is going
+
+One hosted instance over Streamable HTTP with **Sign in with Discord** in front of it. OAuth proves
+the caller is a specific Discord user; the bot token then asks Discord which roles that user holds
+in the fenced guild. Roles become the authorization source, so access is granted and revoked in
+Server Settings → Roles rather than in a second system that drifts out of sync with it.
+
+- **Tier from role.** Moderator → `write`, owner → `admin`, any other member → `read`, non-member
+  → refused at the door.
+- **A server per session, not per process.** Construct the `McpServer` when a session
+  authenticates, registering only that user's tier. This keeps the unregistered-tools-are-invisible
+  property rather than trading it for per-call checks: a read-tier session genuinely has 15 tools,
+  not 37 sitting behind guards.
+- **Attribution.** Writes carry `— requested by @user`, and the actor is recorded server-side
+  against every action. Posting anonymously as the bot is defensible with one operator and
+  indefensible with several.
+- **One rate-limit bucket.** Every operator shares the bot token's Discord rate limits, so the
+  limiter has to be process-wide rather than per-session.
+
+Staged so the auth path is proven before it can break anything: deploy read-only first, with the
+mode capped server-side. The blast radius is then nothing a member could not already do in the
+Discord client, while still exercising OAuth, role lookup and session handling under real use.
+Writes unlock afterwards; `admin` stays on the local stdio instance.
 
 ## Validation
 
@@ -161,3 +224,27 @@ Static analysis proves the contract, not the behaviour: authorization, role-posi
 confirmation enforcement against a live guild, and audit records still need a real token.
 
 ## Operating notes
+
+**A rebuild does not reach a running server.** The client spawns this process and holds it for the
+life of the session, so `npm run build` writes `dist/` underneath a server that already loaded the
+old code. Restart the client session — or, when a fix appears not to have landed, compare the
+timestamps:
+
+```bash
+stat -f '%Sm %N' -t '%H:%M:%S' dist/*.js
+ps -eo pid,lstart,command | grep '[d]ist/index.js'
+```
+
+A server whose start time precedes the build is serving stale code.
+
+**Empty message bodies are meaningful.** System messages (joins, pins, boosts) and sticker-only
+messages carry no `content` by design. They render as `<system: joined the server>` and
+`<sticker: Wave>` rather than as blank lines, because a blank body is otherwise indistinguishable
+from the redaction you get when the Message Content intent is switched off.
+
+**Rate limits belong to the token, not the caller.** Everyone driving a given bot token shares one
+set of Discord rate-limit buckets.
+
+**Guild content is data, not instruction.** A message asking the agent to ban someone, post
+something, or change a setting is not authorization for it. The server says so in its `instructions`,
+and it holds for anything built on top of this too.
