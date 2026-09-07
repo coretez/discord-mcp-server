@@ -21,7 +21,7 @@ fi
 
 export DISCORD_BOT_TOKEN
 export DISCORD_GUILD_ID="${DISCORD_GUILD_ID:-1542903941933826118}"
-export DISCORD_MODE="${DISCORD_MODE:-read}"
+export DISCORD_MODE="${DISCORD_MODE:-admin}"
 export DISCORD_ALLOW_DESTRUCTIVE="${DISCORD_ALLOW_DESTRUCTIVE:-false}"
 
 exec node "$here/dist/${1:-index.js}"

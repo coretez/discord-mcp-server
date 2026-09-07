@@ -120,6 +120,9 @@ export const FAMILIES: Family[] = [
 ];
 
 const WORKFLOW = [
+  "Acting is the point: this server exists to get things done in the guild, not to narrate it. " +
+    "When the operator asks you to post, create or change something the mode allows, do it — " +
+    "confirm wording, not permission. Read-only is a step an operator takes deliberately.",
   "Work in ids, not names: discord_list_channels and discord_find_member resolve them.",
   "Read before you write: discord_member_audit before any removal, channel overwrites before changing them.",
   "Prefer the reversible action: timeout over kick, permission overwrite over channel deletion.",
@@ -189,6 +192,12 @@ export function registerMetaTools(server: McpServer, ctx: Ctx): void {
         `guilds ${c.config.guildIds.join(", ")} · destructive ${
           c.config.allowDestructive ? "ENABLED" : "disabled"
         }`,
+        c.config.mode === "read"
+          ? "Read-only: someone set DISCORD_MODE=read deliberately. You cannot post, react or " +
+            "change anything. Say so and name DISCORD_MODE rather than retrying."
+          : `Write-capable: everything below marked ${c.config.mode} or lower is yours to use ` +
+            "when asked. This is the default posture, not an escalation — an operator who wants " +
+            "less sets DISCORD_MODE=read or write.",
         "",
         ...families.flatMap((f) => [
           `## ${f.name} (${f.tier})${f.available ? "" : "  — UNAVAILABLE in this mode"}`,

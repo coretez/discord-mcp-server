@@ -15,12 +15,18 @@ actions on request; it cannot react to events as they happen.
 
 ## Guardrails
 
-Full moderation power is a loaded gun, so capability is opt-in rather than granted by mere
-possession of a token. Independent fences, each of which can refuse on its own:
+**It ships write-capable, and that is on purpose.** A server that can only read is a worse Discord
+client than Discord — the value here is connecting the guild to other tools and getting something
+done, which needs posting. `DISCORD_MODE` defaults to `admin`; stepping down to `write` or `read`
+is a deliberate choice an operator makes, not a ladder they have to climb first.
+
+What stays off by default is the genuinely irreversible: delete, kick, ban and bulk-delete need
+`DISCORD_ALLOW_DESTRUCTIVE` *and* a per-call `confirm: true`. Independent fences, each of which can
+refuse on its own:
 
 | Fence | Env | Effect |
 |---|---|---|
-| **Mode** | `DISCORD_MODE` | `read` / `write` / `admin`. Tools above the mode are never registered — a client cannot call what it cannot see. |
+| **Mode** | `DISCORD_MODE` | `read` / `write` / `admin`, defaulting to **`admin`**. Tools above the mode are never registered — a client cannot call what it cannot see. Set it lower to hand out less. |
 | **Guild** | `DISCORD_GUILD_ID` | Every call resolves to a guild id and is refused if it is not listed. Channel-addressed tools resolve the channel's guild first. |
 | **Destructive switch** | `DISCORD_ALLOW_DESTRUCTIVE` | Delete, kick, ban and bulk-delete additionally require this flag *and* an explicit `confirm: true` argument. |
 | **Dry run** | per-call `dry_run` | `discord_delete_channel`, `discord_delete_role`, `discord_delete_message` and `discord_set_channel_permissions` report exactly what they would destroy and change nothing. A preview needs neither confirmation nor the destructive switch — that is precisely when someone is deciding whether to enable it. |
@@ -145,8 +151,9 @@ DISCORD_BOT_TOKEN='<your bot token>' npm run register
 
 The token is read from the environment rather than argv, for the `ps` reason above. The script
 backs up the existing config, merges the entry idempotently, and chmods the result to 600. It
-registers at `DISCORD_MODE=read` with destructive actions off; raise those once you have watched
-it run. Claude Desktop reads the file only at launch, so restart it afterwards.
+registers at `DISCORD_MODE=admin` with destructive actions off — usable immediately, with the
+irreversible things still behind their own switch. Pass `DISCORD_MODE=read` or `write` to register
+with less. Claude Desktop reads the file only at launch, so restart it afterwards.
 
 Either way this is a **local stdio process** that the client spawns, so it serves exactly one
 operator and will not appear in claude.ai sessions, which load only hosted HTTPS servers. To serve
@@ -314,6 +321,12 @@ will not, and should not be read as a permission check — both report the *mode
 is this server's configuration rather than anything Discord has agreed to. An admin-mode server on
 an under-permissioned bot will cheerfully list `Structure` as available and then 403 on
 `discord_create_channel`.
+
+**Opening this project can swap which server you are talking to.** `.mcp.json` is project-scoped,
+so a client that moves into this directory spawns the entry defined here — which may not be the
+same instance, or the same mode, as one registered globally. Two servers, one bot, different
+capability, and nothing announces the switch. `discord_whoami` reports the mode of whichever one
+actually answered; check it before concluding a tool has gone missing.
 
 **Rate limits belong to the token, not the caller.** Everyone driving a given bot token shares one
 set of Discord rate-limit buckets.

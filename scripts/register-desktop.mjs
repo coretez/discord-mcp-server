@@ -63,9 +63,10 @@ config.mcpServers[KEY] = {
   env: {
     DISCORD_BOT_TOKEN: token,
     DISCORD_GUILD_ID: process.env.DISCORD_GUILD_ID ?? "1542903941933826118",
-    // Deliberately conservative. Raise to write or admin once you have watched
-    // it run, and set DISCORD_ALLOW_DESTRUCTIVE separately and on purpose.
-    DISCORD_MODE: process.env.DISCORD_MODE ?? "read",
+    // Usable by default: a server that can only read is a worse Discord client
+    // than Discord. Lower it with DISCORD_MODE=read|write if you want less.
+    // DISCORD_ALLOW_DESTRUCTIVE stays off and is set separately, on purpose.
+    DISCORD_MODE: process.env.DISCORD_MODE ?? "admin",
     DISCORD_ALLOW_DESTRUCTIVE: process.env.DISCORD_ALLOW_DESTRUCTIVE ?? "false",
   },
 };

@@ -112,7 +112,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     );
   }
 
-  const rawMode = (env.DISCORD_MODE ?? "read").toLowerCase();
+  const rawMode = (env.DISCORD_MODE ?? "admin").toLowerCase();
   if (!(rawMode in MODE_RANK)) {
     throw new Error(`DISCORD_MODE must be one of read|write|admin, got "${rawMode}".`);
   }

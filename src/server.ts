@@ -24,6 +24,16 @@ function instructions(guildIds: string[], mode: string): string {
   return [
     `Discord operations for guild(s) ${guildIds.join(", ")}, running in "${mode}" mode.`,
     "",
+    mode === "read"
+      ? "This server has been explicitly lowered to read-only: it can report on the guild but " +
+        "cannot post, react, or change anything. Say so plainly when asked to do something it " +
+        "cannot, and point the operator at DISCORD_MODE rather than retrying."
+      : "This server can write to a live guild that real people are reading. That is the point " +
+        "of it — a server that can only read is a worse Discord client than Discord. Posting is " +
+        "expected of you when the operator asks for it; you do not need to talk them out of it. " +
+        "An operator who wants less can set DISCORD_MODE=read or write, which is a deliberate " +
+        "step down rather than the starting position.",
+    "",
     "Start with describe_capabilities for the routing map: capability families, which tools sit " +
       "in each, and the guardrails currently in force. list_skills and load_skill deliver the " +
       "operational playbooks (moderation triage, channel provisioning, community digest) rather " +
