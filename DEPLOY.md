@@ -75,6 +75,17 @@ when their token next expires (8 hours) or at the next restart, whichever comes 
 With no roles defined the defaults still work: the guild owner gets `admin`, every other member
 `read`.
 
+A tier is a ceiling on the tool surface, not a grant of Discord permission. Every call still
+executes as the one bot token, so promoting someone to `admin` while the bot's own role lacks
+**Manage Channels** or **Manage Roles** hands them tools that return `403 / 50013` rather than
+anything useful. Before mapping the first `admin` role, confirm the bot can do the job:
+
+```bash
+DISCORD_MODE=admin npm run preflight
+```
+
+It exits non-zero when the mode promises more than the bot's guild permissions can deliver.
+
 ## Known gaps
 
 - **Token persistence.** In-memory, so every restart forces re-authentication.

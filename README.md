@@ -93,6 +93,14 @@ Discord permissions are necessary but not sufficient: to moderate a member or as
 bot's **highest role must sit above** the target's. Drag the bot's role up in Server Settings →
 Roles.
 
+**Re-inviting is how a bot gains permissions later.** The permission bits in the invite URL are
+baked into the bot's role at join time. Raising `DISCORD_MODE` afterwards changes only which tools
+get registered — never what the guild will let them do. A server started at `admin` whose bot
+joined from the `read` URL therefore exposes the whole admin surface and 403s on the first
+structural call. Either re-invite from the URL matching the mode you want, or tick the missing
+permissions onto the bot's existing role in Server Settings → Roles. Step 4 catches this before an
+agent does.
+
 **3. Build.**
 
 ```bash
@@ -297,6 +305,15 @@ A server whose start time precedes the build is serving stale code.
 messages carry no `content` by design. They render as `<system: joined the server>` and
 `<sticker: Wave>` rather than as blank lines, because a blank body is otherwise indistinguishable
 from the redaction you get when the Message Content intent is switched off.
+
+**A 403 / 50013 has two causes and one message.** Discord's "Missing Permissions" means either
+the bot's role lacks the permission bit, or its highest role sits below the target's — the error
+does not say which. `npm run preflight` separates them: it prints the effective permission set
+against what the mode needs, and the role position. `discord_whoami` and `describe_capabilities`
+will not, and should not be read as a permission check — both report the *mode's* surface, which
+is this server's configuration rather than anything Discord has agreed to. An admin-mode server on
+an under-permissioned bot will cheerfully list `Structure` as available and then 403 on
+`discord_create_channel`.
 
 **Rate limits belong to the token, not the caller.** Everyone driving a given bot token shares one
 set of Discord rate-limit buckets.
