@@ -1,0 +1,36 @@
+{
+  "name": "fluency-discord-mcp",
+  "version": "0.2.0",
+  "private": true,
+  "description": "MCP server for operating the FluencySecurityAi Discord guild: read, post, and moderate.",
+  "type": "module",
+  "bin": {
+    "fluency-discord-mcp": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "preflight": "node dist/preflight.js",
+    "evidence": "node scripts/capture-evidence.mjs",
+    "analyze": "node scripts/analyze.mjs",
+    "register": "node scripts/register-desktop.mjs"
+  },
+  "dependencies": {
+    "@discordjs/rest": "^2.6.3",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "discord-api-types": "^0.38.55",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

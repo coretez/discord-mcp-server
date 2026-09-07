@@ -1,0 +1,70 @@
+{
+  "spec_revision": "2025-11-25",
+  "quality": {
+    "outcome_naming": true,
+    "inspect_twins": true,
+    "confirmation_gates": true,
+    "neighbor_cross_references": true,
+    "empty_case_documentation": true,
+    "when_to_call": true,
+    "quoted_trigger_phrasings": false,
+    "lone_query_guardrails": true
+  },
+  "extensions": {
+    "cheat_sheet": {
+      "required": true,
+      "tool": "describe_capabilities",
+      "require_server_instructions": true
+    },
+    "version_transparency": {
+      "required": true,
+      "tool": "inspect_version_compatibility"
+    },
+    "skill_loading": {
+      "required": true,
+      "list_tool": "list_skills",
+      "load_tool": "load_skill"
+    },
+    "client_issue_reporting": {
+      "required": true,
+      "tool": "report_client_issue"
+    },
+    "ui_presentation": {
+      "required": true,
+      "min_tools": 1,
+      "required_tools": [
+        "describe_capabilities"
+      ]
+    }
+  },
+  "n1_exempt": [
+    "describe_capabilities",
+    "inspect_version_compatibility",
+    "list_skills",
+    "load_skill",
+    "report_client_issue",
+    "discord_list_channels",
+    "discord_list_roles",
+    "discord_list_members",
+    "discord_list_threads",
+    "discord_list_bans",
+    "discord_get_member",
+    "discord_read_messages",
+    "discord_search_messages",
+    "discord_create_channel",
+    "discord_delete_channel",
+    "discord_create_role",
+    "discord_delete_role",
+    "discord_create_thread",
+    "discord_delete_message",
+    "discord_set_channel_permissions",
+    "discord_set_nickname"
+  ],
+  "min_description_chars": 100,
+  "max_description_chars": 6000,
+  "near_neighbor_ratio": 0.9,
+  "tool_namespace": "discord_",
+  "j10_exempt": [
+    "describe_capabilities"
+  ]
+}
